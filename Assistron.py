@@ -12,15 +12,9 @@ def hello_world():
 @app.route("/interaction-started-webhook", methods=['POST'])
 def start_interaction():
     data = request.get_data()
-    print(data)
     email = json.loads(data)['data']['personEmail']
     headers = {'Authorization' : 'Bearer MTBmZmU0NWQtYmYxMi00ZGJjLTk2OTUtZDEzZjUxYmE3MjRiYzI1ZjlkYzYtMjQx_PF84_1eb65fdf-9643-417f-9974-ad72cae0e10f'}
     r = requests.get("https://webexapis.com/v1/messages/direct", params={'personEmail' : f'{email}'}, headers = headers)
-    print("-----------------------------")
-    print(r.json().keys())
-    if 'errors' in r.json().keys():
-        print(r.json())
-    print("-----------------------------")
     try:
         lastMessage = r.json()['items'][0]['text']
         if lastMessage == "Start":
@@ -28,10 +22,11 @@ def start_interaction():
     except:
         print()
     try:
-        print("asdkjbsajdsabd))))))))))))))))))))))))))))))))99")
-        fileURL = r.json()['files'][0]
+        print(r.json()['items'][0]['files'][0])
+        fileURL = r.json()['items'][0]['files'][0]
         r2 = requests.get(fileURL, headers = headers)
-        print(r2.json())
+        print(r2.status_code)
+        print(r2.content)
     except KeyError:
         print()
     return "<p>Communication started</p>"
