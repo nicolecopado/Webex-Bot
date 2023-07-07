@@ -25,8 +25,11 @@ def start_interaction():
         print(r.json()['items'][0]['files'][0])
         fileURL = r.json()['items'][0]['files'][0]
         r2 = requests.get(fileURL, headers = headers)
-        print(r2.status_code)
-        print(r2.content)
+        contentType = r2.headers['Content-Type']
+        if contentType.endswith('csv'):
+            requests.post("https://webexapis.com/v1/messages", data = {'toPersonEmail' : email, 'text' : 'Processing...'}, headers = headers)
+        else:
+            requests.post("https://webexapis.com/v1/messages", data = {'toPersonEmail' : email, 'text' : 'El archivo no está en formato CSV.'}, headers = headers)
     except KeyError:
         print()
     return "<p>Communication started</p>"
