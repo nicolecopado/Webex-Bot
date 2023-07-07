@@ -17,6 +17,8 @@ def start_interaction():
     r = requests.get("https://webexapis.com/v1/messages/direct", params={'personEmail' : f'{email}'}, headers = headers)
     print("-----------------------------")
     print(r.json().keys())
+    if 'errors' in r.json().keys():
+        print(r.json())
     print("-----------------------------")
     lastMessage = r.json()['items'][0]['text']
     if lastMessage == "Start":
