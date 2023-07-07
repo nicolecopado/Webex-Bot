@@ -2,7 +2,8 @@ from flask import Flask, request
 import requests
 import json
 import logging
-
+import pandas as pd
+from io import StringIO
 app = Flask(__name__)
 
 @app.route("/")
@@ -28,8 +29,14 @@ def start_interaction():
         contentType = r2.headers['Content-Type']
         if contentType.endswith('csv'):
             requests.post("https://webexapis.com/v1/messages", data = {'toPersonEmail' : email, 'text' : 'Processing...'}, headers = headers)
+            processCSV(r2.content)
         else:
             requests.post("https://webexapis.com/v1/messages", data = {'toPersonEmail' : email, 'text' : 'El archivo no está en formato CSV.'}, headers = headers)
     except KeyError:
         print()
     return "<p>Communication started</p>"
+
+def processCSV(data):
+    data = str(data, 'utf-8')
+    df = pd.read_csv(StringIO(data))
+    print(df['PID'])
