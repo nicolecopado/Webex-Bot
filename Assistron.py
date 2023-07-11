@@ -39,4 +39,5 @@ def start_interaction():
 def processCSV(data):
     data = str(data, 'utf-8')
     df = pd.read_csv(StringIO(data))
-    print(df['PID'])
+    print(df.head(10))
+    df = df.drop_duplicates(subset='IP address')
