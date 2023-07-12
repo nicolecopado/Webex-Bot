@@ -48,6 +48,8 @@ def processCSV(data):
     df['Configured restconf'] = ["" for _ in range(df.shape[0])]
     df['Connectivity'] = ["" for _ in range(df.shape[0])]
     df['Memory Usage %'] = [None for _ in range(df.shape[0])]
+    df['Encrypted Password'] = [None for _ in range(df.shape[0])]
+    df['Potential_bugs'] = None
     config_line = 'restconf'
     for index, row in df.iterrows():
 
@@ -73,6 +75,10 @@ def processCSV(data):
                 versionStringIndex = output_list.index('version')
                 OSVersion = output_list[versionStringIndex + 1]
                 df.at[index, 'Version'] = OSVersion
+                if 'secret' in output:
+                    df.at[index, 'Encrypted Password'] = True 
+                else:
+                    df.at[index, 'Encrypted Password'] = False
                 try:
                     url_mem = f"https://{ip_address}/restconf/data/Cisco-IOS-XE-memory-oper:memory-statistics"
                     headers = {'Accept': 'application/yang-data+json'}
@@ -91,6 +97,49 @@ def processCSV(data):
                     traceback_str = ''.join(traceback.format_tb(e.__traceback__))
                     print("Un error ocurrió")
                     print(traceback_str)
+
+                device_id = row['PID']
+                if device_id:
+                    try:
+                        token = ''
+                        url = 'https://id.cisco.com/oauth2/default/v1/token'
+                        data = {
+                            'client_id': '63ed3gpqg5jbrrmbdch6zd4d',
+                            'client_secret': 'fTrzZVVTAMP9AdcRTXPvbSyS',
+                            'grant_type': 'client_credentials',
+                                }
+                        response = requests.post(url, data=data)
+                        # Validate we are getting a 200 status code
+                        if response.status_code == 200:
+                            # Parse the response in json format
+                            token = response.json().get('access_token')
+                            # Print your token
+                            print(f'Access token: {token}')
+                            
+                        else:
+                            print(f'Request failed with status code {response.status_code}')
+                        headers = {
+                        'Authorization': f'Bearer {token}',
+                                }
+                        url = f"https://apix.cisco.com/bug/v3.0/bugs/products/product_id/{device_id}?page_index=1&modified_date=5"
+                        response = requests.get(url, headers=headers)
+
+                        # Validate the status code as 200
+                        if response.status_code == 200:
+                            # Parse the response in json format
+                            response_data = response.json()
+
+                            # List comprehension in python: https://realpython.com/list-comprehension-python/
+                            bug_id = [bug['bug_id'] for bug in response_data['bugs']]
+
+                            # Update the bug_id information in the proper column/row
+                            df.loc[index, 'Potential_bugs'] = bug_id
+                        else:
+                            print(f'Request failed with status code {response.status_code}')
+                            df.loc[index, 'Potential_bugs'] = 'Wrong API access'
+
+                    except Exception as e:
+                        print(f"Failed to retrieve info from {device_id}: {str(e)}")
                 
             else:
                 df.at[index, 'Configured restconf'] = "No Restconf"
@@ -101,7 +150,8 @@ def processCSV(data):
             df.at[index, 'Connectivity'] = 'Unreachable'
         finally:
             connection.disconnect()
-        df.fillna('N/A')
+        df.info()
+        df.fillna(value="N/A", inplace=True)
         csv_file = 'interns_challenge_new.csv'
         df.to_csv(csv_file, index = False)   
         # if row['OS type']== 'IOS-XE':
