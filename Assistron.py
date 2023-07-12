@@ -1,5 +1,6 @@
 from flask import Flask, request
 import requests
+from requests.auth import HTTPBasicAuth
 import json
 import logging
 import pandas as pd
@@ -7,6 +8,7 @@ from io import StringIO
 import netmiko
 from netmiko import ConnectHandler
 import re
+import traceback
 
 app = Flask(__name__)
 
@@ -45,9 +47,12 @@ def processCSV(data):
     df = df.drop_duplicates(subset='IP address')
     df['Configured restconf'] = ["" for _ in range(df.shape[0])]
     df['Connectivity'] = ["" for _ in range(df.shape[0])]
+    df['Memory Usage %'] = [None for _ in range(df.shape[0])]
     config_line = 'restconf'
     for index, row in df.iterrows():
+
         ip_address = row['IP address']
+
         device = {
                 'device_type': 'cisco_ios',
                 'ip': str(ip_address),
@@ -56,10 +61,11 @@ def processCSV(data):
                 'secret': 'cisco!123'
                     }
         ip_address = row['IP address']
-        try:
 
+        try:
             connection = ConnectHandler(**device)
             output = connection.send_command('show run')
+
             if config_line in output:
                 df.at[index, 'Configured restconf'] = "Restconf enabled"
                 df.at[index, 'Connectivity'] = 'Reachable'
@@ -67,7 +73,25 @@ def processCSV(data):
                 versionStringIndex = output_list.index('version')
                 OSVersion = output_list[versionStringIndex + 1]
                 df.at[index, 'Version'] = OSVersion
+                try:
+                    url_mem = f"https://{ip_address}/restconf/data/Cisco-IOS-XE-memory-oper:memory-statistics"
+                    headers = {'Accept': 'application/yang-data+json'}
+                    response = requests.get(url_mem, headers=headers, verify=False, auth=HTTPBasicAuth(device['username'], device['password']))
+                    if response.status_code == 200:
+                        response = response.json()
+                        # Parse the response to only get the Processor total and used memory information
+                        memory_statistics = response['Cisco-IOS-XE-memory-oper:memory-statistics']['memory-statistic']
+                        for element in memory_statistics:   
+                            if element['name'] == 'Processor':
+                                df.at[index, 'Memory Usage %'] = (float(element['used-memory'])/float(element['total-memory']))*100
+                    else:
+                        print (f"Received response code: {response.status_code}")
 
+                except Exception as e:
+                    traceback_str = ''.join(traceback.format_tb(e.__traceback__))
+                    print("Un error ocurrió")
+                    print(traceback_str)
+                
             else:
                 df.at[index, 'Configured restconf'] = "No Restconf"
                 df.at[index, 'Connectivity'] = 'Reachable'
@@ -77,6 +101,7 @@ def processCSV(data):
             df.at[index, 'Connectivity'] = 'Unreachable'
         finally:
             connection.disconnect()
+        df.fillna('N/A')
         csv_file = 'interns_challenge_new.csv'
         df.to_csv(csv_file, index = False)   
         # if row['OS type']== 'IOS-XE':
