@@ -6,6 +6,7 @@ import pandas as pd
 from io import StringIO
 import netmiko
 from netmiko import ConnectHandler
+import re
 
 app = Flask(__name__)
 
@@ -26,7 +27,6 @@ def start_interaction():
     except:
         print()
     try:
-        print(r.json()['items'][0]['files'][0])
         fileURL = r.json()['items'][0]['files'][0]
         r2 = requests.get(fileURL, headers = headers)
         contentType = r2.headers['Content-Type']
@@ -57,21 +57,28 @@ def processCSV(data):
                     }
         ip_address = row['IP address']
         try:
+
             connection = ConnectHandler(**device)
             output = connection.send_command('show run')
             if config_line in output:
                 df.at[index, 'Configured restconf'] = "Restconf enabled"
                 df.at[index, 'Connectivity'] = 'Reachable'
+                output_list = output.split()
+                versionStringIndex = output_list.index('version')
+                OSVersion = output_list[versionStringIndex + 1]
+                df.at[index, 'Version'] = OSVersion
+
             else:
                 df.at[index, 'Configured restconf'] = "No Restconf"
                 df.at[index, 'Connectivity'] = 'Reachable'
+
         except Exception as e:
             df.at[index, 'Configured restconf'] = "No Restconf"
             df.at[index, 'Connectivity'] = 'Unreachable'
         finally:
             connection.disconnect()
-            csv_file = 'interns_challenge_new.csv'
-            df.to_csv(csv_file, index = False)   
+        csv_file = 'interns_challenge_new.csv'
+        df.to_csv(csv_file, index = False)   
         # if row['OS type']== 'IOS-XE':
         #     device = {
         #         'device_type': 'cisco_ios',
