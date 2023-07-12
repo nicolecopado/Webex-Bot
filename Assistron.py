@@ -4,6 +4,9 @@ import json
 import logging
 import pandas as pd
 from io import StringIO
+import netmiko
+from netmiko import ConnectHandler
+
 app = Flask(__name__)
 
 @app.route("/")
@@ -39,5 +42,51 @@ def start_interaction():
 def processCSV(data):
     data = str(data, 'utf-8')
     df = pd.read_csv(StringIO(data))
-    print(df.head(10))
     df = df.drop_duplicates(subset='IP address')
+    df['Configured restconf'] = ["" for _ in range(df.shape[0])]
+    config_line = 'restconf'
+    for index, row in df.iterrows():
+        ip_address = row['IP address']
+        device = {
+                'device_type': 'cisco_ios',
+                'ip': str(ip_address),
+                'username': 'admin',
+                'password': 'cisco!123',
+                'secret': 'cisco!123'
+                    }
+        ip_address = row['IP address']
+        try:
+            connection = ConnectHandler(**device)
+            output = connection.send_command('show run')
+            if config_line in output:
+                df.at[index, 'Configured restconf'] = "Restconf enabled"
+                print("Restconf está habilitado en: " + str(ip_address))
+            else:
+                df.at[index, 'Configured restconf'] = "No Restconf"
+                print("Restconf no habilitado en: " + str(ip_address))
+        except Exception as e:
+            print(f"Failed to retrieve info from {ip_address}: {str(e)}")
+        finally:
+            connection.disconnect()
+        # if row['OS type']== 'IOS-XE':
+        #     device = {
+        #         'device_type': 'cisco_ios',
+        #         'ip': str(ip_address),
+        #         'username': 'admin',
+        #         'password': 'cisco!123',
+        #         'secret': 'cisco!123'
+        #             }
+        #     try:
+        #         connection = ConnectHandler(**device)
+        #         output = connection.send_command('show run')
+        #         if config_line in output:
+        #             df.at[index, 'Configured restconf'] = "Restconf enabled"
+        #         else:
+        #             df.at[index, 'Configured restconf'] = "No Restconf"
+        #         connection.disconnect()
+        #     except Exception as e:
+        #         print(f"Failed to retrieve info from {ip_address}: {str(e)}")
+        # elif row['OS type']== 'IOS':
+        #     df.at[index, 'Configured restconf'] = "Not supported"
+        # else:
+        #     df.at[index, 'Configured restconf'] = "Unreachable/Unknown"
