@@ -44,6 +44,7 @@ def processCSV(data):
     df = pd.read_csv(StringIO(data))
     df = df.drop_duplicates(subset='IP address')
     df['Configured restconf'] = ["" for _ in range(df.shape[0])]
+    df['Connectivity'] = ["" for _ in range(df.shape[0])]
     config_line = 'restconf'
     for index, row in df.iterrows():
         ip_address = row['IP address']
@@ -60,14 +61,17 @@ def processCSV(data):
             output = connection.send_command('show run')
             if config_line in output:
                 df.at[index, 'Configured restconf'] = "Restconf enabled"
-                print("Restconf está habilitado en: " + str(ip_address))
+                df.at[index, 'Connectivity'] = 'Reachable'
             else:
                 df.at[index, 'Configured restconf'] = "No Restconf"
-                print("Restconf no habilitado en: " + str(ip_address))
+                df.at[index, 'Connectivity'] = 'Reachable'
         except Exception as e:
-            print(f"Failed to retrieve info from {ip_address}: {str(e)}")
+            df.at[index, 'Configured restconf'] = "No Restconf"
+            df.at[index, 'Connectivity'] = 'Unreachable'
         finally:
             connection.disconnect()
+            csv_file = 'interns_challenge_new.csv'
+            df.to_csv(csv_file, index = False)   
         # if row['OS type']== 'IOS-XE':
         #     device = {
         #         'device_type': 'cisco_ios',
