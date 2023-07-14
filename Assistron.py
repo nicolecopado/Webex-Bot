@@ -45,14 +45,16 @@ def processCSV(data):
     data = str(data, 'utf-8')
     df = pd.read_csv(StringIO(data))
     df = df.drop_duplicates(subset='IP address')
-    df['Configured restconf'] = ["" for _ in range(df.shape[0])]
-    df['Connectivity'] = ["" for _ in range(df.shape[0])]
-    df['Memory Usage %'] = [None for _ in range(df.shape[0])]
-    df['Encrypted Password'] = [None for _ in range(df.shape[0])]
+    rowNumber = df.shape[0]
+    df['Configured restconf'] = ["" for _ in range(rowNumber)]
+    df['Connectivity'] = ["" for _ in range(rowNumber)]
+    df['Memory Usage %'] = [None for _ in range(rowNumber)]
+    df['Encrypted Password'] = [None for _ in range(rowNumber)]
     df['Potential_bugs'] = None
     df['Serial'] = None
     df['PSIRT'] = ''
     df['CRITICAL_PSIRT'] = ''
+    df['[ALERT] Critical Memory Usage'] = None
     config_line = 'restconf'
     token = ""
     url = 'https://id.cisco.com/oauth2/default/v1/token'
@@ -98,24 +100,28 @@ def processCSV(data):
                     df.at[index, 'Encrypted Password'] = True 
                 else:
                     df.at[index, 'Encrypted Password'] = False
-                try:
-                    url_mem = f"https://{ip_address}/restconf/data/Cisco-IOS-XE-memory-oper:memory-statistics"
-                    headers = {'Accept': 'application/yang-data+json'}
-                    response = requests.get(url_mem, headers=headers, verify=False, auth=HTTPBasicAuth(device['username'], device['password']))
-                    if response.status_code == 200:
-                        response = response.json()
-                        # Parse the response to only get the Processor total and used memory information
-                        memory_statistics = response['Cisco-IOS-XE-memory-oper:memory-statistics']['memory-statistic']
-                        for element in memory_statistics:   
-                            if element['name'] == 'Processor':
-                                df.at[index, 'Memory Usage %'] = (float(element['used-memory'])/float(element['total-memory']))*100
-                    else:
-                        print (f"Received response code: {response.status_code}")
+                # try:
+                #     url_mem = f"https://{ip_address}/restconf/data/Cisco-IOS-XE-memory-oper:memory-statistics"
+                #     headers = {'Accept': 'application/yang-data+json'}
+                #     response = requests.get(url_mem, headers=headers, verify=False, auth=HTTPBasicAuth(device['username'], device['password']))
+                #     if response.status_code == 200:
+                #         response = response.json()
+                #         # Parse the response to only get the Processor total and used memory information
+                #         memory_statistics = response['Cisco-IOS-XE-memory-oper:memory-statistics']['memory-statistic']
+                #         for element in memory_statistics:   
+                #             if element['name'] == 'Processor':
+                #                 usagePercentage = (float(element['used-memory'])/float(element['total-memory']))*100
+                #                 if usagePercentage > 90.0:
+                #                     mensaje = "El uso de memoria del dispositivo con PID " + df.loc[index, 'PID'] 
+                #                     requests.post("https://webexapis.com/v1/messages", data = {'toPersonEmail' : email, 'text' : 'El uso de memoria del dispositivo {df.loc[]} '}, headers = headers)
+                #                 df.at[index, 'Memory Usage %'] = usagePercentage
+                #     else:
+                #         print (f"Received response code: {response.status_code}")
 
-                except Exception as e:
-                    traceback_str = ''.join(traceback.format_tb(e.__traceback__))
-                    print("Un error ocurrió")
-                    print(traceback_str)
+                # except Exception as e:
+                #     traceback_str = ''.join(traceback.format_tb(e.__traceback__))
+                #     print("Un error ocurrió")
+                #     print(traceback_str)
 
                 url_lic = f"https://{ip_address}/restconf/data/Cisco-IOS-XE-native:native/license/udi"
                 response = requests.get(url_lic, headers=headers, verify=False, auth=HTTPBasicAuth(device['username'], device['password']))
@@ -155,6 +161,31 @@ def processCSV(data):
 
                     except Exception as e:
                         print(f"Failed to retrieve info from {device_id}: {str(e)}")
+                
+                try:
+                    url_mem = f"https://{ip_address}/restconf/data/Cisco-IOS-XE-memory-oper:memory-statistics"
+                    headers = {'Accept': 'application/yang-data+json'}
+                    response = requests.get(url_mem, headers=headers, verify=False, auth=HTTPBasicAuth(device['username'], device['password']))
+                    if response.status_code == 200:
+                        response = response.json()
+                        # Parse the response to only get the Processor total and used memory information
+                        memory_statistics = response['Cisco-IOS-XE-memory-oper:memory-statistics']['memory-statistic']
+                        for element in memory_statistics:   
+                            if element['name'] == 'Processor':
+                                usagePercentage = (float(element['used-memory'])/float(element['total-memory']))*100
+                                if usagePercentage > 90.0:
+                                    if rowNumber <= 10:
+                                        mensaje = "El uso de memoria del dispositivo con PID " + df.loc[index, 'PID'] + " e IP " + df.loc[index, 'IP address'] + " excede el 90% y puede representar un problema."
+                                        requests.post("https://webexapis.com/v1/messages", data = {'toPersonEmail' : email, 'text' : mensaje}, headers = headers)
+                                    df.at[index, '[ALERT] Critical Memory Usage'] = True
+                                df.at[index, 'Memory Usage %'] = usagePercentage
+                    else:
+                        print (f"Received response code: {response.status_code}")
+
+                except Exception as e:
+                    traceback_str = ''.join(traceback.format_tb(e.__traceback__))
+                    print("Un error ocurrió")
+                    print(traceback_str)
 
                 version = row['Version']
                 if version:
@@ -176,6 +207,7 @@ def processCSV(data):
                             
                             # List comprehension in python: https://realpython.com/list-comprehension-python/
                             advisoryId = [bug['advisoryId'] for bug in response_data['advisories']]
+                            print(response_data['advisories'])
                             # Update the bug_id information in the proper column/row
                             df.at[index, 'PSIRT'] = advisoryId
                             
@@ -195,7 +227,7 @@ def processCSV(data):
         except Exception as e:
             df.at[index, 'Configured restconf'] = "No Restconf"
             df.at[index, 'Connectivity'] = 'Unreachable'
-            
+
         df.fillna(value="N/A", inplace=True)
         csv_file = 'interns_challenge_new.csv'
         df.to_csv(csv_file, index = False)   
