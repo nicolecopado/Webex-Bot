@@ -190,11 +190,12 @@ def processCSV(data):
                 df.at[index, 'Configured restconf'] = "No Restconf"
                 df.at[index, 'Connectivity'] = 'Reachable'
 
+            connection.disconnect()
+
         except Exception as e:
             df.at[index, 'Configured restconf'] = "No Restconf"
             df.at[index, 'Connectivity'] = 'Unreachable'
-        finally:
-            connection.disconnect()
+            
         df.fillna(value="N/A", inplace=True)
         csv_file = 'interns_challenge_new.csv'
         df.to_csv(csv_file, index = False)   
