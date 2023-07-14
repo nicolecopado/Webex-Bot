@@ -50,7 +50,26 @@ def processCSV(data):
     df['Memory Usage %'] = [None for _ in range(df.shape[0])]
     df['Encrypted Password'] = [None for _ in range(df.shape[0])]
     df['Potential_bugs'] = None
+    df['Serial'] = None
+    df['PSIRT'] = ''
+    df['CRITICAL_PSIRT'] = ''
     config_line = 'restconf'
+    token = ""
+    url = 'https://id.cisco.com/oauth2/default/v1/token'
+    data = {
+            'client_id': '63ed3gpqg5jbrrmbdch6zd4d',
+            'client_secret': 'fTrzZVVTAMP9AdcRTXPvbSyS',
+            'grant_type': 'client_credentials',
+            }
+    response = requests.post(url, data=data)
+        # Validate we are getting a 200 status code
+    if response.status_code == 200:
+        # Parse the response in json format
+        token = response.json().get('access_token')
+        print("Your access token is: " + str(token))
+    else:
+        print(f'Request failed with status code {response.status_code}')
+
     for index, row in df.iterrows():
 
         ip_address = row['IP address']
@@ -74,7 +93,7 @@ def processCSV(data):
                 output_list = output.split()
                 versionStringIndex = output_list.index('version')
                 OSVersion = output_list[versionStringIndex + 1]
-                df.at[index, 'Version'] = OSVersion
+                df.at[index, 'Version'] = str(OSVersion) + ".1"
                 if 'secret' in output:
                     df.at[index, 'Encrypted Password'] = True 
                 else:
@@ -98,26 +117,24 @@ def processCSV(data):
                     print("Un error ocurrió")
                     print(traceback_str)
 
+                url_lic = f"https://{ip_address}/restconf/data/Cisco-IOS-XE-native:native/license/udi"
+                response = requests.get(url_lic, headers=headers, verify=False, auth=HTTPBasicAuth(device['username'], device['password']))
+                
+                if response.status_code == 200:
+                    response = response.json()
+                    sn_value = response['Cisco-IOS-XE-native:udi']['sn']
+                    pid_value = response['Cisco-IOS-XE-native:udi']['pid']
+                    df.at[index, 'Serial'] = sn_value
+                    df.at[index, 'PID'] = pid_value
+
+                else:
+                    print (f"Received response code: {response.status_code}")
+                    df.at[index, 'Serial'] = "Can't retrieve SN"
+                    df.at[index, 'PID'] = "Can't retrieve PID"
+
                 device_id = row['PID']
                 if device_id:
                     try:
-                        token = ''
-                        url = 'https://id.cisco.com/oauth2/default/v1/token'
-                        data = {
-                            'client_id': '63ed3gpqg5jbrrmbdch6zd4d',
-                            'client_secret': 'fTrzZVVTAMP9AdcRTXPvbSyS',
-                            'grant_type': 'client_credentials',
-                                }
-                        response = requests.post(url, data=data)
-                        # Validate we are getting a 200 status code
-                        if response.status_code == 200:
-                            # Parse the response in json format
-                            token = response.json().get('access_token')
-                            # Print your token
-                            print(f'Access token: {token}')
-                            
-                        else:
-                            print(f'Request failed with status code {response.status_code}')
                         headers = {
                         'Authorization': f'Bearer {token}',
                                 }
@@ -128,19 +145,47 @@ def processCSV(data):
                         if response.status_code == 200:
                             # Parse the response in json format
                             response_data = response.json()
-
                             # List comprehension in python: https://realpython.com/list-comprehension-python/
                             bug_id = [bug['bug_id'] for bug in response_data['bugs']]
-
                             # Update the bug_id information in the proper column/row
-                            df.loc[index, 'Potential_bugs'] = bug_id
+                            df.loc[index, 'Potential_bugs'] = str(bug_id)
                         else:
                             print(f'Request failed with status code {response.status_code}')
                             df.loc[index, 'Potential_bugs'] = 'Wrong API access'
 
                     except Exception as e:
                         print(f"Failed to retrieve info from {device_id}: {str(e)}")
-                
+
+                version = row['Version']
+                if version:
+                    try:
+                        print("-------------------")
+                        print(version)
+                        print(headers)
+                        print("--------------------------")
+                        url = f"https://apix.cisco.com/security/advisories/v2/OSType/iosxe?version={version}"
+                        response = requests.get(url, headers=headers)
+                        
+                        # Validate the status code as 200
+                        if response.status_code == 200:
+                            # Parse the response in json format
+                            response_data = (response.json())
+                            #Print the response_data so you can see how to filter it to just keep the bug ID
+                            print (response_data)
+                            
+                            
+                            # List comprehension in python: https://realpython.com/list-comprehension-python/
+                            advisoryId = [bug['advisoryId'] for bug in response_data['advisories']]
+                            # Update the bug_id information in the proper column/row
+                            df.at[index, 'PSIRT'] = advisoryId
+                            
+
+                        else:
+                            print(f'Request failed with status code {response.status_code}')
+                            df.at[index, 'PSIRT'] = 'Wrong API access'
+                    except Exception as e:
+                        print(f"Failed to retrieve info from {version}: {str(e)}")
+                            
             else:
                 df.at[index, 'Configured restconf'] = "No Restconf"
                 df.at[index, 'Connectivity'] = 'Reachable'
@@ -150,29 +195,6 @@ def processCSV(data):
             df.at[index, 'Connectivity'] = 'Unreachable'
         finally:
             connection.disconnect()
-        df.info()
         df.fillna(value="N/A", inplace=True)
         csv_file = 'interns_challenge_new.csv'
         df.to_csv(csv_file, index = False)   
-        # if row['OS type']== 'IOS-XE':
-        #     device = {
-        #         'device_type': 'cisco_ios',
-        #         'ip': str(ip_address),
-        #         'username': 'admin',
-        #         'password': 'cisco!123',
-        #         'secret': 'cisco!123'
-        #             }
-        #     try:
-        #         connection = ConnectHandler(**device)
-        #         output = connection.send_command('show run')
-        #         if config_line in output:
-        #             df.at[index, 'Configured restconf'] = "Restconf enabled"
-        #         else:
-        #             df.at[index, 'Configured restconf'] = "No Restconf"
-        #         connection.disconnect()
-        #     except Exception as e:
-        #         print(f"Failed to retrieve info from {ip_address}: {str(e)}")
-        # elif row['OS type']== 'IOS':
-        #     df.at[index, 'Configured restconf'] = "Not supported"
-        # else:
-        #     df.at[index, 'Configured restconf'] = "Unreachable/Unknown"
