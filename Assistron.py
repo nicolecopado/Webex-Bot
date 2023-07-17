@@ -53,6 +53,7 @@ def processCSV(data):
     df['Serial'] = None
     df['PSIRT'] = ''
     df['CRITICAL_PSIRT'] = ''
+    df['[ALERT] Critical Memory Usage'] = None
     config_line = 'restconf'
     token = ""
     url = 'https://id.cisco.com/oauth2/default/v1/token'
@@ -66,7 +67,6 @@ def processCSV(data):
     if response.status_code == 200:
         # Parse the response in json format
         token = response.json().get('access_token')
-        print("Your access token is: " + str(token))
     else:
         print(f'Request failed with status code {response.status_code}')
 
@@ -108,8 +108,13 @@ def processCSV(data):
                         memory_statistics = response['Cisco-IOS-XE-memory-oper:memory-statistics']['memory-statistic']
                         for element in memory_statistics:   
                             if element['name'] == 'Processor':
-                                df.at[index, 'Memory Usage %'] = (float(element['used-memory'])/float(element['total-memory']))*100
-                    else:
+                                memoryUsage = (float(element['used-memory'])/float(element['total-memory']))*100
+                                df.at[index, 'Memory Usage %'] = memoryUsage
+                                if memoryUsage > 90.0:
+                                    df.at[index, '[ALERT] Critical Memory Usage'] = True
+                                else:
+                                    df.at[index, '[ALERT] Critical Memory Usage'] = False
+                    else:   
                         print (f"Received response code: {response.status_code}")
 
                 except Exception as e:
@@ -159,10 +164,6 @@ def processCSV(data):
                 version = row['Version']
                 if version:
                     try:
-                        print("-------------------")
-                        print(version)
-                        print(headers)
-                        print("--------------------------")
                         url = f"https://apix.cisco.com/security/advisories/v2/OSType/iosxe?version={version}"
                         response = requests.get(url, headers=headers)
                         
@@ -170,15 +171,17 @@ def processCSV(data):
                         if response.status_code == 200:
                             # Parse the response in json format
                             response_data = (response.json())
-                            #Print the response_data so you can see how to filter it to just keep the bug ID
-                            print (response_data)
                             
-                            
+                            advisoryId = list()
+                            criticalAdvisoryId = list()
                             # List comprehension in python: https://realpython.com/list-comprehension-python/
-                            advisoryId = [bug['advisoryId'] for bug in response_data['advisories']]
+                            for bug in response_data['advisories']:
+                                advisoryId.append(bug['advisoryId'])
+                                if(float(bug['cvssBaseScore']) >= 7.0):
+                                    criticalAdvisoryId.append(bug['advisoryId'])
                             # Update the bug_id information in the proper column/row
                             df.at[index, 'PSIRT'] = advisoryId
-                            
+                            df.at[index, 'CRITICAL_PSIRT'] = criticalAdvisoryId
 
                         else:
                             print(f'Request failed with status code {response.status_code}')
