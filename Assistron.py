@@ -9,6 +9,8 @@ import netmiko
 from netmiko import ConnectHandler
 import re
 import traceback
+from requests_toolbelt.multipart.encoder import MultipartEncoder
+import copy
 
 app = Flask(__name__)
 
@@ -34,14 +36,30 @@ def start_interaction():
         contentType = r2.headers['Content-Type']
         if contentType.endswith('csv'):
             requests.post("https://webexapis.com/v1/messages", data = {'toPersonEmail' : email, 'text' : 'Processing...'}, headers = headers)
-            processCSV(r2.content)
+            text = r2.headers['content-disposition']
+            match = re.search(r'"(.+?)(?:\.\w{3})"', text)
+            csv_filename = match.group(1) + "_Processed.csv"
+            processCSV(r2.content, csv_filename)
+
+            m = MultipartEncoder({
+                      'toPersonEmail' : email,
+                      'text': 'Here is your processed .csv file.',
+                      'files': (csv_filename, open(csv_filename, 'rb'),
+                      'multipart/form-data')
+                                })
+            headersTemp = copy.deepcopy(headers)
+            headersTemp['Content-Type'] = m.content_type
+            r = requests.post('https://webexapis.com/v1/messages', data=m,
+                  headers=headersTemp)
+            print("EL ESTATUS FUE: " + str(r.status_code))
+
         else:
             requests.post("https://webexapis.com/v1/messages", data = {'toPersonEmail' : email, 'text' : 'El archivo no está en formato CSV.'}, headers = headers)
     except KeyError:
         print()
     return "<p>Communication started</p>"
 
-def processCSV(data):
+def processCSV(data, filename):
     data = str(data, 'utf-8')
     df = pd.read_csv(StringIO(data))
     df = df.drop_duplicates(subset='IP address')
@@ -81,8 +99,7 @@ def processCSV(data):
                 'password': 'cisco!123',
                 'secret': 'cisco!123'
                     }
-        ip_address = row['IP address']
-
+                    
         try:
             connection = ConnectHandler(**device)
             output = connection.send_command('show run')
@@ -200,5 +217,5 @@ def processCSV(data):
             df.at[index, 'Connectivity'] = 'Unreachable'
             
         df.fillna(value="N/A", inplace=True)
-        csv_file = 'interns_challenge_new.csv'
-        df.to_csv(csv_file, index = False)   
+        df.to_csv(filename, index = False)
+           
