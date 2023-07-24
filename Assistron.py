@@ -11,6 +11,10 @@ import re
 import traceback
 from requests_toolbelt.multipart.encoder import MultipartEncoder
 import copy
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 app = Flask(__name__)
 
@@ -29,7 +33,7 @@ def start_interaction():
         if lastMessage == "Start":
             requests.post("https://webexapis.com/v1/messages", data = {'toPersonEmail' : email, 'text' : 'Por favor adjunta el archivo en formato CSV a procesar.'}, headers = headers)
     except:
-        print()
+        pass
     try:
         fileURL = r.json()['items'][0]['files'][0]
         r2 = requests.get(fileURL, headers = headers)
@@ -38,25 +42,36 @@ def start_interaction():
             requests.post("https://webexapis.com/v1/messages", data = {'toPersonEmail' : email, 'text' : 'Processing...'}, headers = headers)
             text = r2.headers['content-disposition']
             match = re.search(r'"(.+?)(?:\.\w{3})"', text)
-            csv_filename = match.group(1) + "_Processed.csv"
+            csv_filename = match.group(1)
             processCSV(r2.content, csv_filename)
 
             m = MultipartEncoder({
                       'toPersonEmail' : email,
                       'text': 'Here is your processed .csv file.',
-                      'files': (csv_filename, open(csv_filename, 'rb'),
+                      'files': (csv_filename + "_Processed.csv", open(csv_filename + "_Processed.csv", 'rb'),
                       'multipart/form-data')
                                 })
             headersTemp = copy.deepcopy(headers)
             headersTemp['Content-Type'] = m.content_type
             r = requests.post('https://webexapis.com/v1/messages', data=m,
                   headers=headersTemp)
-            print("EL ESTATUS FUE: " + str(r.status_code))
+
+            m = MultipartEncoder({
+                      'toPersonEmail' : email,
+                      'text': 'Here is your network report.',
+                      'files': (csv_filename + "_Report.pdf", open(csv_filename + "_Report.pdf", 'rb'),
+                      'multipart/form-data')
+                                })
+            headersTemp = copy.deepcopy(headers)
+            headersTemp['Content-Type'] = m.content_type
+            r = requests.post('https://webexapis.com/v1/messages', data=m,
+                  headers=headersTemp)
+
 
         else:
             requests.post("https://webexapis.com/v1/messages", data = {'toPersonEmail' : email, 'text' : 'El archivo no está en formato CSV.'}, headers = headers)
     except KeyError:
-        print()
+        pass
     return "<p>Communication started</p>"
 
 def processCSV(data, filename):
@@ -217,5 +232,52 @@ def processCSV(data, filename):
             df.at[index, 'Connectivity'] = 'Unreachable'
             
         df.fillna(value="N/A", inplace=True)
-        df.to_csv(filename, index = False)
+        df.to_csv(filename + "_Processed.csv" , index = False)
+        create_report(df, filename)
+
+def create_report(dataF, filename):
+    # Define the document
+    doc = SimpleDocTemplate(filename + "_Report.pdf", pagesize=letter)
+
+    # Define styles
+    styles = getSampleStyleSheet()
+    title_style = styles["Title"]
+    subtitle_style = ParagraphStyle(
+        "Subtitle",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=14,
+        spaceAfter=10
+    )
+
+    # Create the content flowables
+    flowables = []
+
+    # Insert logo at the header
+    logo = Image("cisco_logo.png")
+    logo.drawWidth = 80
+    logo.drawHeight = 65
+    flowables.append(logo)
+    device = "PID & IP address"
+
+    # Add the report title
+    flowables.append(Paragraph("Assistron Report", title_style))
+
+    # Add subtitle
+    for col_num, row in dataF.iterrows():
+        flowables.append(Paragraph(f"PID: {row['PID']} & IP address: {row['IP address']}", subtitle_style))
+        flowables.append(Paragraph(f"IP Address: {row['IP address']}", styles["Normal"]))
+        flowables.append(Paragraph(f"Version: {row['Version']}", styles["Normal"]))
+        flowables.append(Paragraph(f"Configured Restconfig: {row['Configured restconf']}", styles["Normal"]))
+        flowables.append(Paragraph(f"Conectivity: {row['Connectivity']}", styles["Normal"]))
+        flowables.append(Paragraph(f"Memory Usage: {row['Memory Usage %']}", styles["Normal"]))
+        flowables.append(Paragraph(f"Encrypted Password: {row['Encrypted Password']}", styles["Normal"]))
+        flowables.append(Paragraph(f"Potential Bugs: {row['Potential_bugs']}", styles["Normal"]))
+        flowables.append(Paragraph(f"PSIRT: {row['PSIRT']}", styles["Normal"]))
+        flowables.append(Paragraph(f"Critical PSIRT: {row['CRITICAL_PSIRT']}", styles["Normal"]))
+        flowables.append(Paragraph(f"[Alert] Critical Memory: {row['Connectivity']}", styles["Normal"]))
+        flowables.append(Paragraph("", subtitle_style))
+
+    # Build the document
+    doc.build(flowables)
            
